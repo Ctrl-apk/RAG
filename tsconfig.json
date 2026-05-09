@@ -8,7 +8,11 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "sourceMap": true
+    
+    /* 2026 MODERN SETTINGS */
+    "rewriteRelativeImportExtensions": true, 
+    "allowImportingTsExtensions": true,
+    "noEmit": false 
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]

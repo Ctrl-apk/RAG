@@ -2,9 +2,9 @@ import express from "express";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import { upload } from "./upload";
-import { ingest, retrieve } from "./rag";
-import { ask } from "./ask";
+import { upload } from "./upload.js";
+import { ingest, retrieve } from "./rag.js";
+import { ask } from "./ask.js";
 
 dotenv.config();
 

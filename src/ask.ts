@@ -1,6 +1,6 @@
 import { HfInference } from "@huggingface/inference";
-import { retrieve } from "./rag";
-import { env } from "./env";
+import { retrieve } from "./rag.js";
+import { env } from "./env.js";
 
 // Initialize the official client
 const hf = new HfInference(env.HUGGINGFACEHUB_API_KEY);

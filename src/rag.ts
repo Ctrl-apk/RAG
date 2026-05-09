@@ -4,7 +4,7 @@ import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { randomUUID } from "crypto";
-import { env } from "./env";
+import { env } from "./env.js";
 
 const client = new QdrantClient({
   url: env.QDRANT_URL,
