@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG NotebookLM</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: auto; padding: 40px; background-color: #f4f4f9; color: #333; }
+    h2 { color: #2c3e50; text-align: center; }
+    .box { background: white; padding: 25px; margin-bottom: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    h3 { margin-top: 0; color: #34495e; }
+    button { padding: 10px 20px; cursor: pointer; border: none; border-radius: 6px; background-color: #3498db; color: white; font-weight: bold; transition: background 0.3s; }
+    button:hover { background-color: #2980b9; }
+    button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+    input[type="file"] { margin-bottom: 10px; }
+    textarea { width: 100%; padding: 12px; margin-top: 10px; border: 1px solid #ddd; border-radius: 8px; resize: vertical; min-height: 100px; box-sizing: border-box; }
+    .chat { background: #ebf5fb; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 5px solid #3498db; min-height: 50px; white-space: pre-wrap; line-height: 1.6; }
+    #uploadStatus { font-weight: bold; margin-top: 10px; color: #27ae60; }
+  </style>
+</head>
+
+<body>
+
+<h2>📄 NotebookLM RAG</h2>
+
+<div class="box">
+  <h3>1. Upload Knowledge</h3>
+  <input type="file" id="file" accept="application/pdf" />
+  <button id="uploadBtn" onclick="uploadFile()">Upload PDF</button>
+  <p id="uploadStatus"></p>
+</div>
+
+<div class="box">
+  <h3>2. Chat with your Document</h3>
+  <textarea id="question" placeholder="Ask a question about the uploaded PDF..."></textarea>
+  <button id="askBtn" onclick="askQuestion()">Ask Intelligence</button>
+  
+  <div id="answerLabel" style="margin-top: 20px; font-weight: bold; display: none;">Assistant's Response:</div>
+  <div class="chat" id="answerBox" style="display: none;"></div>
+</div>
+
+<script>
+let currentDocId = "";
+
+async function uploadFile() {
+  const fileInput = document.getElementById("file");
+  const status = document.getElementById("uploadStatus");
+  const btn = document.getElementById("uploadBtn");
+
+  if (!fileInput.files[0]) return alert("Please select a PDF file first!");
+
+  btn.disabled = true;
+  status.innerText = "⏳ Processing document... This takes a moment.";
+  status.style.color = "#f39c12";
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  try {
+    const res = await fetch("/api/upload", { method: "POST", body: formData });
+    const data = await res.json();
+
+    if (data.docId) {
+      currentDocId = data.docId;
+      status.innerText = "✅ Uploaded Successfully!";
+      status.style.color = "#27ae60";
+    } else {
+      throw new Error("No DocID returned");
+    }
+  } catch (err) {
+    status.innerText = "❌ Error uploading document.";
+    status.style.color = "#e74c3c";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function askQuestion() {
+  const questionInput = document.getElementById("question");
+  const answerBox = document.getElementById("answerBox");
+  const answerLabel = document.getElementById("answerLabel");
+  const btn = document.getElementById("askBtn");
+
+  if (!currentDocId) return alert("Please upload a PDF before asking questions.");
+  if (!questionInput.value.trim()) return alert("Please enter a question.");
+
+  btn.disabled = true;
+  answerLabel.style.display = "block";
+  answerBox.style.display = "block";
+  answerBox.innerText = "🤖 Thinking... (Waking up the AI models)";
+
+  try {
+    const res = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        docId: currentDocId,
+        question: questionInput.value
+      })
+    });
+
+    const data = await res.json();
+    let finalAnswer = data.answer || "I couldn't generate an answer.";
+
+    // Logic to clean up Mistral "Prompt Echo" if it leaks through
+    if (finalAnswer.includes("[/INST]</s>")) {
+        finalAnswer = finalAnswer.split("[/INST]</s>").pop().trim();
+    }
+
+    answerBox.innerText = finalAnswer;
+  } catch (err) {
+    answerBox.innerText = "❌ Failed to connect to the server.";
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+
+</body>
+</html>
