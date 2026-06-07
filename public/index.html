@@ -5,47 +5,92 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RAG NotebookLM</title>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: auto; padding: 40px; background-color: #f4f4f9; color: #333; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: auto; padding: 40px; background-color: #f4f4f9; color: #333; }
     h2 { color: #2c3e50; text-align: center; }
     .box { background: white; padding: 25px; margin-bottom: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     h3 { margin-top: 0; color: #34495e; }
     button { padding: 10px 20px; cursor: pointer; border: none; border-radius: 6px; background-color: #3498db; color: white; font-weight: bold; transition: background 0.3s; }
     button:hover { background-color: #2980b9; }
     button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+    select { padding: 8px 12px; border-radius: 6px; border: 1px solid #ddd; margin-left: 8px; }
     input[type="file"] { margin-bottom: 10px; }
     textarea { width: 100%; padding: 12px; margin-top: 10px; border: 1px solid #ddd; border-radius: 8px; resize: vertical; min-height: 100px; box-sizing: border-box; }
     .chat { background: #ebf5fb; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 5px solid #3498db; min-height: 50px; white-space: pre-wrap; line-height: 1.6; }
+    .meta { background: #f8f9fa; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 0.85em; color: #555; }
+    .meta h4 { margin: 0 0 8px 0; color: #2c3e50; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; margin: 2px; }
+    .badge-fast { background: #d5f5e3; color: #1e8449; }
+    .badge-balanced { background: #d6eaf8; color: #2471a3; }
+    .badge-accurate { background: #fdebd0; color: #b7950b; }
     #uploadStatus { font-weight: bold; margin-top: 10px; color: #27ae60; }
+    .timing { font-family: monospace; font-size: 0.8em; }
   </style>
 </head>
 
 <body>
 
-<h2>📄 NotebookLM RAG</h2>
+<h2>📄 NotebookLM RAG — Advanced Pipeline</h2>
+<p id="healthStatus" style="text-align:center;font-size:0.9em;"></p>
 
 <div class="box">
   <h3>1. Upload Knowledge</h3>
   <input type="file" id="file" accept="application/pdf" />
+  <label>Chunk mode:
+    <select id="uploadMode">
+      <option value="fast">Fast (800/50)</option>
+      <option value="balanced" selected>Balanced (600/100)</option>
+      <option value="accurate">Accurate (400/150)</option>
+    </select>
+  </label>
   <button id="uploadBtn" onclick="uploadFile()">Upload PDF</button>
   <p id="uploadStatus"></p>
 </div>
 
 <div class="box">
   <h3>2. Chat with your Document</h3>
+  <label>Retrieval mode (speed ↔ accuracy):
+    <select id="askMode">
+      <option value="fast">⚡ Fast — basic vector search</option>
+      <option value="balanced" selected>⚖️ Balanced — rewrite + rerank + judge</option>
+      <option value="accurate">🎯 Accurate — full pipeline + HyDE</option>
+    </select>
+  </label>
   <textarea id="question" placeholder="Ask a question about the uploaded PDF..."></textarea>
   <button id="askBtn" onclick="askQuestion()">Ask Intelligence</button>
   
   <div id="answerLabel" style="margin-top: 20px; font-weight: bold; display: none;">Assistant's Response:</div>
   <div class="chat" id="answerBox" style="display: none;"></div>
+  <div class="meta" id="metaBox" style="display: none;"></div>
 </div>
 
 <script>
 let currentDocId = "";
+let currentThreadId = "";
+
+async function checkHealth() {
+  const el = document.getElementById("healthStatus");
+  try {
+    const res = await fetch("/api/health");
+    const data = await res.json();
+    if (data.qdrant?.ok) {
+      el.innerHTML = "✅ Qdrant connected";
+      el.style.color = "#27ae60";
+    } else {
+      el.innerHTML = `❌ Qdrant offline — ${data.qdrant?.hint || "check your .env"}`;
+      el.style.color = "#e74c3c";
+    }
+  } catch {
+    el.innerHTML = "⚠️ Could not reach server health endpoint";
+    el.style.color = "#e67e22";
+  }
+}
+checkHealth();
 
 async function uploadFile() {
   const fileInput = document.getElementById("file");
   const status = document.getElementById("uploadStatus");
   const btn = document.getElementById("uploadBtn");
+  const mode = document.getElementById("uploadMode").value;
 
   if (!fileInput.files[0]) return alert("Please select a PDF file first!");
 
@@ -55,20 +100,26 @@ async function uploadFile() {
 
   const formData = new FormData();
   formData.append("file", fileInput.files[0]);
+  formData.append("mode", mode);
 
   try {
     const res = await fetch("/api/upload", { method: "POST", body: formData });
     const data = await res.json();
 
+    if (!res.ok) {
+      throw new Error(data.error || `Upload failed (${res.status})`);
+    }
+
     if (data.docId) {
       currentDocId = data.docId;
-      status.innerText = "✅ Uploaded Successfully!";
+      currentThreadId = "";
+      status.innerText = `✅ Uploaded! ${data.chunks} chunks (size ${data.chunkConfig?.chunkSize}, overlap ${data.chunkConfig?.chunkOverlap})`;
       status.style.color = "#27ae60";
     } else {
-      throw new Error("No DocID returned");
+      throw new Error(data.error || "No DocID returned");
     }
   } catch (err) {
-    status.innerText = "❌ Error uploading document.";
+    status.innerText = `❌ ${err.message || "Error uploading document."}`;
     status.style.color = "#e74c3c";
   } finally {
     btn.disabled = false;
@@ -79,7 +130,9 @@ async function askQuestion() {
   const questionInput = document.getElementById("question");
   const answerBox = document.getElementById("answerBox");
   const answerLabel = document.getElementById("answerLabel");
+  const metaBox = document.getElementById("metaBox");
   const btn = document.getElementById("askBtn");
+  const mode = document.getElementById("askMode").value;
 
   if (!currentDocId) return alert("Please upload a PDF before asking questions.");
   if (!questionInput.value.trim()) return alert("Please enter a question.");
@@ -87,7 +140,9 @@ async function askQuestion() {
   btn.disabled = true;
   answerLabel.style.display = "block";
   answerBox.style.display = "block";
-  answerBox.innerText = "🤖 Thinking... (Waking up the AI models)";
+  metaBox.style.display = "block";
+  answerBox.innerText = "🤖 Running advanced pipeline (LangGraph + Agent SDK)...";
+  metaBox.innerHTML = "";
 
   try {
     const res = await fetch("/api/ask", {
@@ -95,19 +150,49 @@ async function askQuestion() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         docId: currentDocId,
-        question: questionInput.value
+        question: questionInput.value,
+        mode,
+        threadId: currentThreadId || undefined
       })
     });
 
     const data = await res.json();
     let finalAnswer = data.answer || "I couldn't generate an answer.";
 
-    // Logic to clean up Mistral "Prompt Echo" if it leaks through
     if (finalAnswer.includes("[/INST]</s>")) {
-        finalAnswer = finalAnswer.split("[/INST]</s>").pop().trim();
+      finalAnswer = finalAnswer.split("[/INST]</s>").pop().trim();
     }
 
     answerBox.innerText = finalAnswer;
+    currentThreadId = data.threadId || "";
+
+    const badgeClass = `badge-${data.mode || "balanced"}`;
+    let meta = `<h4>Pipeline Metadata <span class="badge ${badgeClass}">${data.mode}</span></h4>`;
+
+    if (data.rewrittenQuery) meta += `<div><b>Rewritten query:</b> ${data.rewrittenQuery}</div>`;
+    if (data.subQueries?.length) meta += `<div><b>Sub-queries:</b> ${data.subQueries.join(" | ")}</div>`;
+    meta += `<div><b>Relevant:</b> ${data.isRelevant ? "✅ yes" : "❌ no"} | <b>Web fallback:</b> ${data.usedWebSearch ? "yes" : "no"}</div>`;
+
+    if (data.tokenInfo) {
+      meta += `<div><b>Token budget:</b> ${data.tokenInfo.finalTokens}/${data.tokenInfo.originalTokens} tokens`;
+      if (data.tokenInfo.truncated) meta += ` (truncated, dropped ${data.tokenInfo.droppedChunks} chunks)`;
+      meta += `</div>`;
+    }
+
+    if (data.metrics) {
+      meta += `<div><b>Total latency:</b> ${data.metrics.totalMs}ms | <b>Bottleneck:</b> ${data.metrics.slowestStage} — ${data.metrics.bottleneckNote}</div>`;
+      if (data.metrics.timings?.length) {
+        meta += `<div class="timing">${data.metrics.timings.map(t => `${t.stage}: ${t.durationMs}ms`).join(" → ")}</div>`;
+      }
+    }
+
+    if (data.agentHandoffs?.length) {
+      meta += `<div><b>Agent handoffs:</b> ${data.agentHandoffs.join(" → ")}</div>`;
+    }
+
+    if (data.threadId) meta += `<div><b>Thread ID:</b> ${data.threadId} (checkpointed)</div>`;
+
+    metaBox.innerHTML = meta;
   } catch (err) {
     answerBox.innerText = "❌ Failed to connect to the server.";
   } finally {
